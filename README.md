@@ -1,59 +1,184 @@
-Chronos Implementation Checklist
+# Chronos — Implementation Checklist
 
-a) lock free queue : 
+High-performance asynchronous job scheduler built around a **lock-free work-stealing deque**, **priority scheduling**, and an **epoll-based I/O reactor**.
 
-Task 1: Data Structures and Memory Layout
+---
 
-[ ] Define a small, Value-Semantics struct Job to hold function pointers and minimal arguments.
+## A) Core: Lock-Free Work-Stealing Deque
 
-[ ] Create the internal Node structure within the queue.
+### Task 1: Data Structures & Memory Layout
 
-[ ] False Sharing Mitigation: Apply alignas(64) padding to the head and tail atomic indices in MPMCQueue.hpp.
+- [ ] Define a `Job` struct with:
+  - function pointer or callable storage
+  - pointer/reference to promise state (optional)
+  - small, trivially movable layout
 
-[ ] Finalize the MPMCQueue.hpp structure with the fixed-size std::vector (Ring Buffer) and the bitwise mask for rapid indexing.
+- [ ] Decide maximum job size (e.g. **64–128 bytes**) to enforce SBO  
+- [ ] Design a `TaskNode` (intrusive, reused from pool)  
+- [ ] Implement a fixed-capacity circular array for the deque  
+- [ ] Choose index type (`uint32_t` or `uint64_t`)  
+- [ ] Use **power-of-two capacity** + bitmask for fast modulo  
+- [ ] Separate `top` and `bottom` indices  
 
-Task 2: Lock-Free Logic & Testing
+- [ ] Apply `alignas(64)` to:
+  - `top` index
+  - `bottom` index
+  - frequently written flags
 
-[ ] Implement the Producer logic: push(item). Use the Compare-And-Swap (CAS) loop to atomically claim the next slot at the tail index.
+- [ ] Ensure deque memory is allocated **once at startup**  
+- [ ] Touch all memory pages during init (avoid page faults later)
 
-[ ] Implement the Consumer logic: pop_batch(output, max_count). Use a single CAS on the head index to claim a batch of jobs (Adaptive Batching).
+---
 
-[ ] Verification: Write a simple main.cpp test harness that spawns threads to push and pop. Confirm no crashes and correct job order.
+### Task 2: Lock-Free Deque Logic (Chase–Lev)
 
-Task 3: Worker Pool Setup
+- [ ] Implement `push_bottom(Job)`
+  - owner thread only
+  - write job → store (release) → increment `bottom`
 
-[ ] Create the WorkerPool class to manage a fixed number of consumer threads (ideally matching CPU cores).
+- [ ] Implement `pop_bottom()`
+  - owner thread only
+  - decrement `bottom`
+  - check race with steal
+  - handle last-item case carefully
 
-[ ] Implement Thread RAII: Ensure threads are properly joined/detached in the pool's destructor to prevent resource leaks.
+- [ ] Implement `steal_top()`
+  - thieves only
+  - CAS on `top`
+  - acquire semantics
 
-[ ] Implement the Worker Loop: Each thread runs a continuous cycle, calling queue.pop_batch() and executing the jobs it retrieves.
+- [ ] Handle empty & single-item edge cases  
+- [ ] Verify **no CAS** in owner fast path  
+- [ ] Ensure memory ordering correctness  
+- [ ] Add debug asserts for invariants:
+  - `top <= bottom`
+  - capacity bounds
 
-b)  scheduler engine : 
+---
 
-Task 4: Epoll Wrapper
+### Task 3: Work-Stealing Testing
 
-[ ] Create the EpollWrapper class to encapsulate Linux system calls (epoll_create, epoll_ctl, epoll_wait).
+- [ ] Single-thread push/pop correctness test  
+- [ ] Two-thread steal test  
+- [ ] Stress test with **N workers**  
+- [ ] Validate no duplicate execution  
+- [ ] Validate no lost tasks  
+- [ ] Run under **TSAN / ASAN**  
+- [ ] Add counters for steal frequency  
 
-[ ] Configuration: Configure the Epoll file descriptor set to use Edge-Triggered (ET) mode for the highest efficiency and performance.
+---
 
-Task 5: The Main Event Loop (The Producer)
+### Task 4: Worker Pool
 
-[ ] Implement the Scheduler's run() method (the main thread).
+- [ ] Create `Worker` struct:
+  - thread
+  - local deques (per priority)
+  - thread-local pools
 
-[ ] Use epoll_wait() for the Blocking Wait—this thread sleeps until I/O events arrive.
+- [ ] Create `WorkerPool` manager  
+- [ ] Pin workers to CPU cores (optional but recommended)
 
-[ ] Event-to-Job Translation: When events return, read them (e.g., new data on a socket) and package the necessary context (FD, event type) into a Job struct.
+- [ ] Worker main loop:
+  - pop from highest-priority local deque
+  - if empty → steal
+  - if still empty → backoff / sleep
 
-[ ] Call queue.push(job) to submit the task to the waiting worker threads.
+- [ ] Implement adaptive backoff:
+  - `_mm_pause()`
+  - `std::this_thread::yield()`
 
-Task 6: Final Integration & Stability
+- [ ] Safe exit condition on shutdown  
+- [ ] Join all threads cleanly  
 
-[ ] Connection Check: Ensure the Epoll Producer is pushing to the exact same MPMCQueue instance the Worker Pool is consuming from.
+---
 
-[ ] Stress Test: Run the integrated system under high mock load (simulated connections).
+## B) Scheduler Engine (Policy Layer)
 
-[ ] Confirm low-latency throughput.
+### Task 5: Priority Queues
 
-[ ] Verify proper backpressure handling if the queue fills up.
+- [ ] Decide number of priority levels (e.g. **3**)  
+- [ ] Each worker owns:
+  - `deque[HIGH]`
+  - `deque[MEDIUM]`
+  - `deque[LOW]`
 
-[ ] Cleanup: Ensure all system resources are properly closed (epoll_close, socket file descriptors) and threads are terminated cleanly on exit.
+- [ ] Push policy:
+  - tasks enter local deque when possible
+
+- [ ] Pop policy:
+  - always try **HIGH → MED → LOW**
+
+- [ ] Steal policy:
+  - steal **HIGH** first
+
+- [ ] Optional: priority aging counters  
+- [ ] Avoid global scans  
+
+---
+
+## C) Epoll Reactor (I/O Producer)
+
+### Task 6: Epoll Wrapper
+
+- [ ] Create `EpollReactor` class  
+- [ ] Call `epoll_create1(EPOLL_CLOEXEC)`  
+- [ ] Preallocate `epoll_event events[MAX_EVENTS]`  
+- [ ] Wrap `epoll_ctl` (ADD / MOD / DEL)  
+- [ ] Use **non-blocking sockets only**  
+- [ ] Decide LT vs ET (**LT first for safety**)  
+
+---
+
+### Task 7: Reactor Loop
+
+- [ ] Run epoll loop in a dedicated thread  
+- [ ] Call `epoll_wait()`  
+- [ ] For each event:
+  - extract fd & flags
+  - package into `Job`
+
+- [ ] Submit job into scheduler  
+- [ ] Ensure submission path is **lock-free**  
+- [ ] No heavy work inside reactor thread  
+
+---
+
+## D) Runtime API (Entry Point)
+
+### Task 8: Promise / Future System
+
+- [ ] Design `FutureState` struct:
+  - value storage
+  - ready flag
+  - synchronization primitive
+
+- [ ] Preallocate pool of `FutureState`  
+- [ ] Implement `Promise::set_value`  
+- [ ] Implement `Future::get` (blocking or spin+wait)  
+- [ ] Ensure single completion  
+- [ ] Handle task failure paths  
+
+---
+
+### Task 9: Public API
+
+- [ ] `Chronos::start()`  
+- [ ] `Chronos::submit(priority, callable)`  
+- [ ] `Chronos::shutdown()`  
+- [ ] Reject submissions after shutdown  
+- [ ] Drain queues on exit  
+- [ ] Resolve or cancel pending futures  
+
+---
+
+## E) Final Stability & Validation
+
+- [ ] No runtime allocations after startup  
+- [ ] No worker busy-spin under idle load  
+- [ ] Correct shutdown under stress  
+- [ ] No task executed twice  
+- [ ] No lost tasks  
+- [ ] p95 / p99 latency measurements  
+- [ ] README with architecture diagram  
+
+---
