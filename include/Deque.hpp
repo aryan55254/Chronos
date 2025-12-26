@@ -5,10 +5,10 @@
 
 /*
 so what we are implementing here is a work stealing per thread ring buffer deque
-each task queue is owned by a single worker thread , owner thread can push pop and process work the other threads can steal the job to process it only when they are idle , this makes sure that contention is minimized and cache locality is maximised , the workstealing uses atomic CAS(compare and swap) but owner thread doesn't (only in a edge case it does) so this also adds a performance boost compared to a global mpmc queue , we prevent false sharing here as well by cache line padding for top and bottom
+each task queue is owned by a single worker thread , owner thread can push pop and process work the other threads can steal the job to process it only when they are idle , this makes sure that cache locality is maximised , the workstealing uses atomic CAS(compare and swap) but owner thread doesn't (only in a edge case it does) so this also adds a performance boost compared to a global mpmc queue , we prevent false sharing here as well by cache line padding for top and bottom by this contention is minimized and also all the operations are completely lock free and use atomics , owner uses stack like LIFO by poping from bottom in the queue and thieves do opposite and pop from top
 */
 /*
-this is basically has two things a function and argument that will be passed into the function that will be pushed into queue and processed by workers
+this basically contains a function pointer and an opaque argument
 */
 struct Job
 {
@@ -39,7 +39,7 @@ public:
        Constructor:
        - Initialize top and bottom to 0
        - Capacity must be power of two
-       - Buffer allocated once (static or in ctor)
+       - Buffer allocated once
        */
     explicit Deque(size_t capacity);
     /*
@@ -64,8 +64,7 @@ public:
     pop_bottom:
     - ONLY called by owner thread
     - Remove most recent job
-    - Handle empty case
-    - Handle race with steal when size == 1
+    - edge case when only one job remains and both thief and owner try to pop it then we use cas here to make sure it is handled well
     */
     bool pop_bottom(Job &out);
 
