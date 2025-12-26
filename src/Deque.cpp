@@ -30,7 +30,6 @@ bool Deque::push_bottom(Job job)
     size_t b = bottom.load(std::memory_order_relaxed);
     if ((b - t) >= capacity)
     {
-        std::cout << "can't add job , deque overflow" << std::endl;
         return false;
     }
     else
@@ -49,9 +48,13 @@ bool Deque::push_bottom(Job job)
 bool Deque::pop_bottom(Job &out)
 {
     size_t b = bottom.load(std::memory_order_relaxed);
+    size_t t = top.load(std::memory_order_acquire);
+    if (b <= t)
+    {
+        return false;
+    }
     bottom.store(b - 1, std::memory_order_relaxed);
     // used acquire here because top also has chances of being read by other threads
-    size_t t = top.load(std::memory_order_acquire);
     size_t new_b = b - 1;
     if (new_b < t)
     {
@@ -79,12 +82,12 @@ bool Deque::steal_top(Job &out)
 {
     size_t b = bottom.load(std::memory_order_acquire);
     size_t t = top.load(std::memory_order_acquire);
-    Job job = buffer[t & mask];
-
     if (t >= b)
     {
         return false;
     }
+    Job job = buffer[t & mask];
+
     if (!top.compare_exchange_strong(t, t + 1, std::memory_order_acq_rel,
                                      std::memory_order_relaxed))
     {
