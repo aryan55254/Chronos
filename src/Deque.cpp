@@ -1,6 +1,5 @@
 #include "../include/Deque.hpp"
 #include <stdexcept>
-#include <iostream>
 /*
 constructor initializes indices and prepares power-of-two masking for the ring buffer
 */
@@ -48,13 +47,12 @@ bool Deque::push_bottom(Job job)
 bool Deque::pop_bottom(Job &out)
 {
     size_t b = bottom.load(std::memory_order_relaxed);
-    size_t t = top.load(std::memory_order_acquire);
+    size_t t = top.load(std::memory_order_acquire); // used acquire here because top also has chances of being read by other threads
     if (b <= t)
     {
         return false;
     }
     bottom.store(b - 1, std::memory_order_relaxed);
-    // used acquire here because top also has chances of being read by other threads
     size_t new_b = b - 1;
     if (new_b < t)
     {
