@@ -1,136 +1,93 @@
 # Chronos
 
-Chronos is a **low-latency C++ job scheduler** designed for predictable performance and minimal contention.
-It is built around a **lock-free, per-thread work-stealing deque** (Chase–Lev) and is intended to support **priority-aware scheduling**, **epoll-based I/O integration**, and a **future/promise-based execution API**.
+Chronos is a **low-latency C++ job scheduler** designed for predictable performance, minimal contention, and high-throughput I/O integration.
 
-The project focuses on **correctness, cache locality, and explicit concurrency control**, avoiding dynamic allocation and global contention on the scheduling hot path.
+It employs a **hybrid queuing architecture**:
+1. **Work-Stealing Deque (LIFO):** A lock-free ring buffer for thread-local task recursion.
+2. **Injection Mailbox (FIFO):** A high-performance MPSC (Multi-Producer Single-Consumer) queue for external task injection from the API or I/O Reactor.
+
+The project focuses on **correctness, cache locality, and explicit concurrency control**, strictly avoiding dynamic allocation and global contention on the scheduling hot path.
 
 ---
 
+### Architecture Diagram
+
+![ARCHITECTURE](public/architecture.png)
+
 ## Design Goals
 
-* Lock-free task scheduling with predictable latency
-* Per-thread ownership to minimize contention
-* Cache-friendly memory layout
-* No allocations on the scheduling hot path
-* Clear separation between core execution, scheduling policy, and API
-* Correctness validated under stress and sanitizers
+* **Predictable Latency:** Wait-free execution for workers consuming their own queues.
+* **Cache Locality:** Per-thread ownership of queues with `alignas(64)` to prevent false sharing.
+* **MPSC/SPSC Hybrid:** Optimized injection paths (Spinlock) vs. execution paths (Lock-Free/Wait-Free).
+* **No Hot-Path Allocations:** All queue memory is pre-allocated at startup.
+* **Correctness:** Validated under AddressSanitizer (ASAN) and stress tests.
 
 ---
 
 ## Current Status
 
-Chronos is under active development.
-The **core execution primitive** — the lock-free work-stealing deque — is **fully implemented and validated**.
+Chronos is under active development. The **core data structures** are fully implemented and validated.
 
-### Implemented
+### Implemented Components
 
-#### Lock-Free Work-Stealing Deque (Chase–Lev)
+#### 1. Lock-Free Work-Stealing Deque (Chase–Lev)
+* **Role:** Stores thread-local sub-tasks (recursion).
+* **Semantics:** LIFO (Last-In-First-Out) for the owner; FIFO (First-In-First-Out) for thieves.
+* **Synchronization:** * Owner: **Wait-Free** (atomic loads/stores) for push/pop.
+  * Thieves: **Lock-Free** (CAS loop) to steal tasks.
+* **Conflict Resolution:** Handles the "single-item race" (Owner popping vs Thief stealing) using `compare_exchange_strong`.
 
-* Per-thread deque with strict ownership semantics
-* Owner fast path is CAS-free
-* Thieves steal from the opposite end using CAS
-* Correct handling of:
+#### 2. MPSC Injection Mailbox
+* **Role:** Buffers tasks coming from the Main Thread (API) or Epoll Reactor.
+* **Semantics:** Strict FIFO (First-In-First-Out).
+* **Synchronization:**
+  * **Push (Producers):** Uses a lightweight `atomic_flag` **Spinlock**. This allows multiple external threads (Reactor + API) to safely inject tasks without corrupting the index.
+  * **Pop (Worker):** **Wait-Free**. The worker never touches the lock, ensuring external contention never stalls the execution engine.
+* **Safety:** Fully immune to "Phantom Reads" via strict `acquire`/`release` ordering.
 
-  * empty deque
-  * single-item race
-  * concurrent steals
-* Power-of-two ring buffer with bitmask indexing
-* `alignas(64)` padding to avoid false sharing
-* Memory allocated once at startup
-* No dynamic allocation on the scheduling hot path
-* Correct acquire / release / acq_rel memory ordering
-
-#### Testing & Validation
-
-* Single-thread push/pop correctness tests
-* Two-thread steal correctness tests
-* Validation for:
-
-  * no duplicate execution
-  * no lost tasks
-* Clean runs under:
-
-  * AddressSanitizer (ASAN)
-
-The deque implementation  will not be modified except for micro-optimizations.
+### Validation
+* **Correctness Tests:** Single-threaded and Multi-threaded (Stealing/Contention) tests passing.
+* **Sanitizers:** Clean runs under ASAN/TSAN.
+* **Memory Safety:** No leaks; RAII-compliant buffer management.
 
 ---
 
 ## Planned Architecture
 
-Chronos is structured in layers, built incrementally on top of the deque.
+Chronos is structured in layers:
 
-### Worker Pool (Next)
+### 1. The Worker (Execution Engine)
+* Owns 1 `Deque` (Private) and 1 `Mailbox` (Public).
+* **Priority Rule:** 1. Process Local Deque (Hot Cache).
+  2. Process Mailbox (External Input).
+  3. Steal from others (Load Balancing).
 
-* Fixed set of worker threads
-* One or more deques per worker
-* Work-stealing execution loop
-* Adaptive backoff (pause → yield)
-* Clean shutdown and thread joining
+### 2. The Epoll Reactor (I/O Layer)
+* A dedicated thread running `epoll_wait`.
+* Translates socket events into `Job` structs.
+* Pushes jobs directly into a specific Worker's `Mailbox` (using the MPSC path).
 
-### Scheduler / Policy Layer
-
-* Priority-aware scheduling (e.g. high / medium / low)
-* Per-worker priority deques
-* Priority-first pop and steal policy
-* Optional aging to prevent starvation
-* No global scheduling queues
-
-### Epoll-Based I/O Reactor
-
-* Dedicated epoll thread
-* Non-blocking I/O only
-* Event-to-job translation
-* Lock-free submission into the scheduler
-* Minimal work inside the reactor thread
-
-### Runtime API
-
-* Promise / future-based task submission
-* Explicit lifecycle management (`start`, `submit`, `shutdown`)
-* Rejection of submissions after shutdown
-* Graceful draining or cancellation of pending work
-
----
-
-## Non-Goals
-
-* General-purpose thread pool abstraction
-* Hidden blocking or implicit synchronization
-* Dynamic task graphs or heavy runtime reflection
-* “Fire-and-forget” task semantics without ownership guarantees
-
-Chronos prioritizes **explicitness and predictability** over convenience.
+### 3. The Scheduler (Orchestrator)
+* Manages the lifecycle of workers.
+* Provides the "victim finding" logic for work stealing.
 
 ---
 
 ## Build & Development
 
-Chronos uses CMake and targets modern C++ (C++20).
+Chronos targets **C++20** and uses CMake.
 
-The project is structured into:
+### Build Instructions
+```bash
+mkdir build && cd build
+cmake .. -DENABLE_ASAN=ON
+make
+```
+### Running Tests
 
-* `src/` and `include/` for core implementation
-* `tests/` mirroring the architecture for isolated testing
-
-Sanitizers (ASAN / TSAN) are supported and used during development to validate correctness under concurrency.
-
----
-
-## Roadmap
-
-1. Worker pool implementation
-2. Priority-aware scheduling policy
-3. Epoll-based I/O reactor
-4. Promise / future API
-5. End-to-end latency measurements
-6. Documentation and architecture diagrams
-
----
-
-## License
-
-MIT License.
-
----
+```
+./test_deque_single
+./test_deque_two_thread
+./test_mailbox_single
+./test_mailbox_mpsc
+```

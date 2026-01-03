@@ -1,50 +1,38 @@
 # Chronos — Test Results
 
-This document tracks the current test coverage and results for Chronos.
-At this stage, testing focuses on validating the correctness and safety of the
-lock-free work-stealing deque (Chase–Lev design), which is the foundation of the scheduler.
+This document tracks the validation of the core concurrency primitives in Chronos.
+All tests were compiled with strict warnings and validated under **AddressSanitizer (ASAN)**.
 
 ---
 
-## Deque Tests
+## 1. Deque Tests (Chase–Lev)
 
-All deque tests were compiled and run in **Debug mode** with strict compiler warnings enabled.
-AddressSanitizer (ASAN) is supported and can be enabled via CMake.
+**Status:** ✅ **PASS**
 
-### 1. Single-Thread Push/Pop Test
+We validated the Lock-Free Work-Stealing Deque under two scenarios:
+1.  **Single-Thread Owner:** Verified strict LIFO ordering and capacity checks.
+2.  **Concurrent Stealing:** Verified that a thief thread can safely steal tasks while the owner pushes/pops, with zero lost jobs or duplicate executions.
 
-**Test:** `test_deque_single`  
-**Purpose:**  
-Validate basic correctness of the deque when used by a single owner thread.
+**Run Log:**
+* `test_deque_single`: [OK]
+* `test_deque_two_thread`: [OK] (1000 jobs executed, ~20% stolen)
 
-**What is tested:**
-- Push operations on the bottom
-- Pop operations from the bottom
-- Correct FIFO/LIFO behavior for the owner
-- No underflow or overflow in normal operation
-
-
-Status: **PASS**
+![Deque Test Screenshot](public/deque_test.png)
 
 ---
 
-### 2. Two-Thread Steal Test
+## 2. Mailbox Tests (MPSC Spinlock)
 
-**Test:** `test_deque_two_thread`  
-**Purpose:**  
-Validate correctness of concurrent stealing by a thief thread while the owner
-executes jobs locally.
+**Status:** ✅ **PASS**
 
-**What is tested:**
-- Concurrent access to `top` and `bottom`
-- Correct CAS behavior for steals
-- No duplicate execution
-- No lost jobs
+We validated the Multi-Producer Single-Consumer (MPSC) Mailbox used for I/O injection:
+1.  **FIFO Ordering:** Verified that the API/Reactor preserves execution order.
+2.  **High Contention:** Verified 4 concurrent Producer threads feeding 1 Consumer.
+    * **Result:** 40,000 jobs processed successfully.
+    * **Data Integrity:** 0 jobs lost, 0 corruptions.
 
-Status: **PASS**
+**Run Log:**
+* `test_mailbox_single`: [OK]
+* `test_mailbox_mpsc`: [OK]
 
-### Test Run Screenshot
-
-A terminal capture of the successful test runs is included below:
-
-![Deque Test Results](public/deque_non_tsan_test.png)
+![Mailbox Test Screenshot](public/mailbox_test.png)

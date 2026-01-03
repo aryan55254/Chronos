@@ -43,8 +43,7 @@ endfunction()
 # ------------------------------------------------------------
 add_library(chronos_core STATIC
     src/Deque.cpp
-    src/Scheduler.cpp
-    src/Workers.cpp
+    src/Mailbox.cpp
 )
 
 target_include_directories(chronos_core PUBLIC
@@ -100,3 +99,13 @@ add_executable(test_deque_two_thread
 
 target_link_libraries(test_deque_two_thread PRIVATE chronos_core Threads::Threads)
 apply_sanitizers(test_deque_two_thread)
+# ------------------------------------------------------------
+# Mailbox tests
+# ------------------------------------------------------------
+add_executable(test_mailbox_single tests/mailbox/test_mailbox_single.cpp)
+target_link_libraries(test_mailbox_single PRIVATE chronos_core Threads::Threads)
+apply_sanitizers(test_mailbox_single)
+
+add_executable(test_mailbox_mpsc tests/mailbox/test_mailbox_mpsc.cpp)
+target_link_libraries(test_mailbox_mpsc PRIVATE chronos_core Threads::Threads)
+apply_sanitizers(test_mailbox_mpsc)
