@@ -3,7 +3,12 @@
 #include <immintrin.h> // For _mm_pause()
 #include <random>
 
-Worker::Worker(int id, Scheduler *scheduler) : id(id), scheduler(scheduler), deque(4096), mailbox(4096), running(true) {};
+Worker::Worker(int id, Scheduler *scheduler)
+    : id(id),
+      deque(4096),
+      mailbox(4096),
+      scheduler(scheduler),
+      running(true) {};
 
 void Worker::start()
 {
