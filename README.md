@@ -8,6 +8,8 @@ It employs a **hybrid queuing architecture**:
 
 The project focuses on **correctness, cache locality, and explicit concurrency control**, strictly avoiding dynamic allocation and global contention on the scheduling hot path.
 
+For detailed validation and performance benchmarks, please refer to [TEST_RESULTS.md](TEST_RESULTS.md).
+
 ---
 
 ### Architecture Diagram
@@ -24,31 +26,33 @@ The project focuses on **correctness, cache locality, and explicit concurrency c
 
 ---
 
-## Current Status
+## Current Status: Compute Layer Complete
 
-Chronos is under active development. The **core data structures** are fully implemented and validated.
+Chronos has reached **v0.1**. The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
 
 ### Implemented Components
 
-#### 1. Lock-Free Work-Stealing Deque (Chase–Lev)
+#### 1. The Scheduler (Orchestrator)
+* **Algorithm:** **Randomized Work Stealing**.
+    * Replaces deterministic Round-Robin to prevent "convoy effects" during patterned task injection.
+    * Statistically ensures uniform load distribution across workers.
+* **Topology:** Maps 1 Worker per Thread.
+
+#### 2. Lock-Free Work-Stealing Deque (Chase–Lev)
 * **Role:** Stores thread-local sub-tasks (recursion).
 * **Semantics:** LIFO (Last-In-First-Out) for the owner; FIFO (First-In-First-Out) for thieves.
-* **Synchronization:** * Owner: **Wait-Free** (atomic loads/stores) for push/pop.
+* **Synchronization:**
+  * Owner: **Wait-Free** (atomic loads/stores) for push/pop.
   * Thieves: **Lock-Free** (CAS loop) to steal tasks.
-* **Conflict Resolution:** Handles the "single-item race" (Owner popping vs Thief stealing) using `compare_exchange_strong`.
+* **Conflict Resolution:** Handles the "single-item race" using `compare_exchange_strong`.
 
-#### 2. MPSC Injection Mailbox
-* **Role:** Buffers tasks coming from the Main Thread (API) or Epoll Reactor.
+#### 3. MPSC Injection Mailbox
+* **Role:** Buffers tasks coming from external sources.
 * **Semantics:** Strict FIFO (First-In-First-Out).
 * **Synchronization:**
-  * **Push (Producers):** Uses a lightweight `atomic_flag` **Spinlock**. This allows multiple external threads (Reactor + API) to safely inject tasks without corrupting the index.
-  * **Pop (Worker):** **Wait-Free**. The worker never touches the lock, ensuring external contention never stalls the execution engine.
+  * **Push (Producers):** Uses a lightweight `atomic_flag` **Spinlock**.
+  * **Pop (Worker):** **Wait-Free**.
 * **Safety:** Fully immune to "Phantom Reads" via strict `acquire`/`release` ordering.
-
-### Validation
-* **Correctness Tests:** Single-threaded and Multi-threaded (Stealing/Contention) tests passing.
-* **Sanitizers:** Clean runs under ASAN/TSAN.
-* **Memory Safety:** No leaks; RAII-compliant buffer management.
 
 ---
 
@@ -56,20 +60,13 @@ Chronos is under active development. The **core data structures** are fully impl
 
 Chronos is structured in layers:
 
-### 1. The Worker (Execution Engine)
+### 1. The Worker (Execution Engine) [DONE]
 * Owns 1 `Deque` (Private) and 1 `Mailbox` (Public).
-* **Priority Rule:** 1. Process Local Deque (Hot Cache).
-  2. Process Mailbox (External Input).
-  3. Steal from others (Load Balancing).
+* **Priority Rule:** 1. Process Local Deque (Hot Cache) -> 2. Process Mailbox (External Input) -> 3. Steal from others.
 
-### 2. The Epoll Reactor (I/O Layer)
-* A dedicated thread running `epoll_wait`.
-* Translates socket events into `Job` structs.
-* Pushes jobs directly into a specific Worker's `Mailbox` (using the MPSC path).
-
-### 3. The Scheduler (Orchestrator)
-* Manages the lifecycle of workers.
-* Provides the "victim finding" logic for work stealing.
+### 2. The I/O Layer (Upcoming)
+* **Epoll Reactor:** A dedicated thread for non-blocking network I/O.
+* **Future/Promise:** A compatibility layer to allow `std::future` based task submission for higher-level logic.
 
 ---
 
@@ -80,14 +77,17 @@ Chronos targets **C++20** and uses CMake.
 ### Build Instructions
 ```bash
 mkdir build && cd build
-cmake .. -DENABLE_ASAN=ON
+# Release mode is recommended for performance testing
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make
-```
-### Running Tests
+Running Tests
+Bash
 
-```
+# Data Structures
 ./test_deque_single
-./test_deque_two_thread
-./test_mailbox_single
 ./test_mailbox_mpsc
-```
+
+# Scheduling Runtime
+./test_compute_layer   # Throughput
+./test_compute_heavy   # CPU Efficiency
+./test_compute_mix     # Load Balancing

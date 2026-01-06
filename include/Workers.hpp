@@ -8,8 +8,7 @@ this is basically a worker thread class definition which will be used by the sch
 #include "Deque.hpp"
 #include "Mailbox.hpp"
 
-// Forward declaration: We promise this class exists later.
-class Scheduler;
+class Scheduler; // forward declaration
 
 class Worker
 {
