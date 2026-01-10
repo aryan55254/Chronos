@@ -8,7 +8,12 @@ It employs a **hybrid queuing architecture**:
 
 The project focuses on **correctness, cache locality, and explicit concurrency control**, strictly avoiding dynamic allocation and global contention on the scheduling hot path.
 
-For detailed validation and performance benchmarks, please refer to [TEST_RESULTS.md](TEST_RESULTS.md).
+###  Performance Highlights
+* **Latency:** **< 5µs** (P50) for lightweight and mixed(1/4th heavy) tasks via spin-wait architecture.
+* **Throughput:** **> 2.0 Million ops/sec** on commodity hardware (8 cores).
+* **Scaling:** **Perfect 4x speedup** on 4 threads for compute-bound workloads.
+
+Check detailed validation and performance benchmarks, please refer to [TestResults.md](TestResults.md).
 
 ---
 
@@ -26,9 +31,19 @@ For detailed validation and performance benchmarks, please refer to [TEST_RESULT
 
 ---
 
+## ⚡ Performance Architecture
+
+Chronos achieves **sub-5µs latency** by utilizing a **Latency-Critical Design**:
+
+* **Busy-Wait Spinning:** Worker threads utilize `_mm_pause()` instructions instead of OS-level sleeping . This eliminates the overhead of context switching and kernel wakeups.
+* **Hot-Cache Execution:** By keeping threads active, the instruction cache remains hot, ensuring that new tasks are picked up immediately upon submission.
+* **Trade-off:** This design deliberately targets **Maximum Throughput** and **Minimum Latency** at the cost of higher CPU utilization (100%), making it ideal for real-time systems (HFT, Game Engines) rather than background services.
+
+---
+
 ## Current Status: Compute Layer Complete
 
-Chronos has reached **v0.1**. The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
+Chronos has reached **v1.0**. The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
 
 ### Implemented Components
 
@@ -56,38 +71,42 @@ Chronos has reached **v0.1**. The Scheduling Runtime is fully functional, capabl
 
 ---
 
-## Planned Architecture
-
-Chronos is structured in layers:
-
-### 1. The Worker (Execution Engine) [DONE]
-* Owns 1 `Deque` (Private) and 1 `Mailbox` (Public).
-* **Priority Rule:** 1. Process Local Deque (Hot Cache) -> 2. Process Mailbox (External Input) -> 3. Steal from others.
-
-### 2. The I/O Layer (Upcoming)
-* **Epoll Reactor:** A dedicated thread for non-blocking network I/O.
-* **Future/Promise:** A compatibility layer to allow `std::future` based task submission for higher-level logic.
-
----
-
 ## Build & Development
 
 Chronos targets **C++20** and uses CMake.
 
 ### Build Instructions
+
 ```bash
 mkdir build && cd build
-# Release mode is recommended for performance testing
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make
-Running Tests
-Bash
 
-# Data Structures
-./test_deque_single
-./test_mailbox_mpsc
+# Release mode with Native optimizations is critical for benchmarks
+cmake -DCMAKE_BUILD_TYPE=Release -DCHRONOS_NATIVE=ON ..
+make -j
 
-# Scheduling Runtime
-./test_compute_layer   # Throughput
-./test_compute_heavy   # CPU Efficiency
-./test_compute_mix     # Load Balancing
+```
+
+### Running Tests & Benchmarks
+
+**1. Unit Tests (Data Structures)**
+
+```bash
+./test_deque_single     # Validate Deque logic
+./test_mailbox_mpsc     # Validate Mailbox logic
+
+```
+
+**2. Performance Benchmarks**
+
+```bash
+./benchmark_easy   # 10 Million Jobs (Throughput + Low Latency Check)
+./benchmark_mixed  # 10 Million Jobs (Load Balancing + Heavy Math)
+
+```
+
+**3. Demo Application**
+
+```bash
+./chronos_demo     # Visual proof of parallelism (Main thread non-blocking)
+
+```

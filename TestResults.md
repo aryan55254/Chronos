@@ -5,35 +5,46 @@ All tests were compiled with strict warnings and validated under **AddressSaniti
 
 ---
 
-## 1. Scheduling Runtime (Compute Layer)
+## 1. Scheduling Runtime (Benchmarks)
 
 **Status:** ✅ **PASS**
 
-These tests validate the full `Scheduler` class, verifying throughput, CPU efficiency, and the work-stealing algorithm's ability to handle load imbalances.
+These benchmarks validate the `Scheduler` class using a **Future-based** submission model (`std::future`). We tested for high throughput under massive load (10 Million jobs) and low latency using a custom spin-wait architecture.
 
-### A. Integrity & Latency Test (`test_compute_layer`)
-* **Scenario:** Submit 10 Million lightweight jobs (`counter++`).
-* **Goal:** Measure pure scheduler overhead and dispatch latency.
-* **Result:** **8.27 Million jobs/sec**.
-* **Latency:** ~120ns per job dispatch/execution cycle.
+### A. Scale & Throughput Test (`benchmark_easy`)
 
-![Compute Latency Screenshot](public/compute_throughput.png)
+* **Scenario:** Submit **10 Million** lightweight jobs to flood the queue.
+* **Goal:** Stress test the engine's memory stability and measure raw dispatch speed.
+* **Result:** **2.144 Million jobs/sec**.
+* **Latency (P50):** **3.83 µs**.
+* **Latency (P99):** **21.53 µs**.
+* **Significance:** The P50 latency confirms immediate task pickup due to the hot-cache spin-loop strategy.
 
-### B. CPU Efficiency Test (`test_compute_heavy`)
-* **Scenario:** 1 Million "Heavy" jobs (Find 500th Prime Number).
-* **Goal:** Verify that the scheduler stays out of the way during heavy math.
-* **Result:** **51,478 jobs/sec** (Matches theoretical max of hardware).
-* **Utilization:** 100% CPU usage across all cores.
+![Easy Benchmark Screenshot](public/benchmark2.png)
 
-![Compute Heavy Screenshot](public/compute_heavy.png)
+<br>
 
-### C. Load Balancing Test (`test_compute_mix`)
-* **Scenario:** Mixed workload (25% Heavy, 75% Light). Submitted in a "poisonous" pattern (every 4th job is heavy) which breaks Round-Robin schedulers.
-* **Goal:** Verify **Randomized Work Stealing**.
-* **Result:** **250.113 K jobs/sec**
-* **Proof:** Heavy jobs were evenly distributed across 4 workers despite the adversarial injection pattern.
+### B. Load Balancing & Contention Test (`benchmark_mixed`)
 
-![Compute Mix Screenshot](public/compute_mix.png)
+* **Scenario:** 10 Million jobs with **25% CPU-Heavy tasks** (Math-bound loops).
+* **Goal:** Verify that the Work-Stealing algorithm effectively distributes heavy loads without starving light tasks.
+* **Result:** **1.087 Million jobs/sec**.
+* **Latency (P50):** **4.05 µs** (Remained stable despite heavy load).
+* **Latency (P99):** **30.44 µs** (Expected increase due to Head-of-Line blocking behind heavy tasks).
+
+![Mixed Benchmark Screenshot](public/benchmark1.png)
+
+<br>
+
+### C. Parallelism Proof (`demo`)
+
+* **Scenario:** 8 Long-Running Tasks (200ms each) running on 4 Worker Threads.
+* **Goal:** Verify non-blocking submission and perfect parallel scaling.
+* **Result:** **400.643 ms Total Time**.
+* **Efficiency:** **4x Speedup** (Perfect linear scaling vs 1600ms serial time).
+* **Behavior:** The Main thread remained unblocked during submission.
+
+![Demo Parallelism Screenshot](public/image.png)
 
 ---
 
@@ -42,25 +53,33 @@ These tests validate the full `Scheduler` class, verifying throughput, CPU effic
 **Status:** ✅ **PASS**
 
 ### A. Deque Tests (Chase–Lev)
+
 We validated the Lock-Free Work-Stealing Deque under two scenarios:
-1.  **Single-Thread Owner:** Verified strict LIFO ordering and capacity checks.
-2.  **Concurrent Stealing:** Verified that a thief thread can safely steal tasks while the owner pushes/pops, with zero lost jobs or duplicate executions.
+
+1. **Single-Thread Owner:** Verified strict LIFO ordering and capacity checks.
+2. **Concurrent Stealing:** Verified that a thief thread can safely steal tasks while the owner pushes/pops, with zero lost jobs or duplicate executions.
 
 **Run Log:**
+
 * `test_deque_single`: [OK]
 * `test_deque_two_thread`: [OK] (1000 jobs executed, ~20% stolen)
 
-![Deque Test Screenshot](public/deque_test.png)
+![Deque Unit Test Screenshot](public/deque_test.png)
+
+<br>
 
 ### B. Mailbox Tests (MPSC Spinlock)
+
 We validated the Multi-Producer Single-Consumer (MPSC) Mailbox used for I/O injection:
-1.  **FIFO Ordering:** Verified that the API/Reactor preserves execution order.
-2.  **High Contention:** Verified 4 concurrent Producer threads feeding 1 Consumer.
-    * **Result:** 40,000 jobs processed successfully.
-    * **Data Integrity:** 0 jobs lost, 0 corruptions.
+
+1. **FIFO Ordering:** Verified that the API/Reactor preserves execution order.
+2. **High Contention:** Verified 4 concurrent Producer threads feeding 1 Consumer.
+* **Result:** 40,000 jobs processed successfully.
+* **Data Integrity:** 0 jobs lost, 0 corruptions.
 
 **Run Log:**
+
 * `test_mailbox_single`: [OK]
 * `test_mailbox_mpsc`: [OK]
 
-![Mailbox Test Screenshot](public/mailbox_test.png)
+![Mailbox Unit Test Screenshot](public/mailbox_test.png)

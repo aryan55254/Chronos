@@ -2,7 +2,7 @@
 #include <immintrin.h>
 #include <random>
 
-Scheduler::Scheduler() : num_workers(4), next_worker_index(0)
+Scheduler::Scheduler() : num_workers(4)
 {
     for (size_t i = 0; i < num_workers; ++i)
     {
