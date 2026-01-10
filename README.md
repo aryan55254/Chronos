@@ -51,7 +51,6 @@ The Scheduling Runtime is fully functional, capable of executing heavy parallel 
 * **I/O:** Uses std::future/promise based I/O and allows async input of jobs.
 
 #### 2. Lock-Free Work-Stealing Deque (Chase–Lev)
-* **Role:** Stores thread-local sub-tasks (recursion).
 * **Stealing Policy:** **Randomized Victim Selection**.
     * When a worker is empty, it attempts to steal from a random peer.
 * **Semantics:** LIFO (Last-In-First-Out) for the owner; FIFO (First-In-First-Out) for thieves.
