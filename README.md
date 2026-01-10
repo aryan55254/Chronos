@@ -4,13 +4,13 @@ Chronos is a **low-latency C++ job scheduler** designed for predictable performa
 
 It employs a **hybrid queuing architecture**:
 1. **Work-Stealing Deque (LIFO):** A lock-free ring buffer for thread-local task recursion.
-2. **Injection Mailbox (FIFO):** A high-performance MPSC (Multi-Producer Single-Consumer) queue for external task injection from the API or I/O Reactor.
+2. **Injection Mailbox (FIFO):** A high-performance MPSC (Multi-Producer Single-Consumer) queue for external task injection from the API.
 
 The project focuses on **correctness, cache locality, and explicit concurrency control**, strictly avoiding dynamic allocation and global contention on the scheduling hot path.
 
 ###  Performance Highlights
 * **Latency:** **< 5µs** (P50) for lightweight and mixed(1/4th heavy) tasks via spin-wait architecture.
-* **Throughput:** **> 2.0 Million ops/sec** on commodity hardware (8 cores).
+* **Throughput:** **> 1.0 Million ops/sec** on commodity hardware (8 cores) for mixed tasks.
 * **Scaling:** **Perfect 4x speedup** on 4 threads for compute-bound workloads.
 
 Check detailed validation and performance benchmarks, please refer to [TestResults.md](TestResults.md).
@@ -31,7 +31,7 @@ Check detailed validation and performance benchmarks, please refer to [TestResul
 
 ---
 
-## ⚡ Performance Architecture
+## Performance Architecture
 
 Chronos achieves **sub-5µs latency** by utilizing a **Latency-Critical Design**:
 
@@ -39,11 +39,7 @@ Chronos achieves **sub-5µs latency** by utilizing a **Latency-Critical Design**
 * **Hot-Cache Execution:** By keeping threads active, the instruction cache remains hot, ensuring that new tasks are picked up immediately upon submission.
 * **Trade-off:** This design deliberately targets **Maximum Throughput** and **Minimum Latency** at the cost of higher CPU utilization (100%), making it ideal for real-time systems (HFT, Game Engines) rather than background services.
 
----
-
-## Current Status: Compute Layer Complete
-
-Chronos has reached **v1.0**. The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
+The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
 
 ### Implemented Components
 
@@ -59,7 +55,7 @@ Chronos has reached **v1.0**. The Scheduling Runtime is fully functional, capabl
 * **Synchronization:**
   * Owner: **Wait-Free** (atomic loads/stores) for push/pop.
   * Thieves: **Lock-Free** (CAS loop) to steal tasks.
-* **Conflict Resolution:** Handles the "single-item race" using `compare_exchange_strong`.
+* **Conflict Resolution:** Handles the "single-item race" using CAS as well.
 
 #### 3. MPSC Injection Mailbox
 * **Role:** Buffers tasks coming from external sources.
