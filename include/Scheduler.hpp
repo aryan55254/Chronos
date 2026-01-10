@@ -17,7 +17,6 @@ private:
     // thread pool
     size_t num_workers;
     Worker *workers[4];
-    std::atomic<size_t> next_worker_index;
     void Submit(Job job);
 
 public:

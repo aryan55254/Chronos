@@ -8,6 +8,11 @@ It employs a **hybrid queuing architecture**:
 
 The project focuses on **correctness, cache locality, and explicit concurrency control**, strictly avoiding dynamic allocation and global contention on the scheduling hot path.
 
+###  Performance Highlights
+* **Latency:** **< 5µs** (P50) for lightweight and mixed(1/4th heavy) tasks via spin-wait architecture.
+* **Throughput:** **> 2.0 Million ops/sec** on commodity hardware (8 cores).
+* **Scaling:** **Perfect 4x speedup** on 4 threads for compute-bound workloads.
+
 Check detailed validation and performance benchmarks, please refer to [TestResults.md](TestResults.md).
 
 ---
