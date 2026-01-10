@@ -5,6 +5,7 @@ project(Chronos VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
 # Dependencies
@@ -55,7 +56,7 @@ apply_sanitizers(chronos_core)
 
 # Main runner
 add_executable(chronos_runner
-    API/main.cpp
+    demo/main.cpp
 )
 
 target_link_libraries(chronos_runner PRIVATE chronos_core)
@@ -105,16 +106,13 @@ add_executable(test_mailbox_mpsc tests/mailbox/test_mailbox_mpsc.cpp)
 target_link_libraries(test_mailbox_mpsc PRIVATE chronos_core Threads::Threads)
 apply_sanitizers(test_mailbox_mpsc)
 
-# Compute Layer test
+# API tests
+# Benchmark: Easy (10M Jobs)
+add_executable(benchmark_easy tests/api/benchmark_easy.cpp)
+target_link_libraries(benchmark_easy PRIVATE chronos_core Threads::Threads)
+apply_sanitizers(benchmark_easy)
 
-add_executable(test_compute_layer tests/compute_layer/compute_test.cpp)
-target_link_libraries(test_compute_layer PRIVATE chronos_core Threads::Threads)
-apply_sanitizers(test_compute_layer)
-
-add_executable(test_compute_heavy tests/compute_layer/test_heavy.cpp)
-target_link_libraries(test_compute_heavy PRIVATE chronos_core Threads::Threads)
-apply_sanitizers(test_compute_heavy)
-
-add_executable(test_compute_mix tests/compute_layer/test_mix.cpp)
-target_link_libraries(test_compute_mix PRIVATE chronos_core Threads::Threads)
-apply_sanitizers(test_compute_mix)
+# Benchmark: Mixed (10M Jobs, 25% Heavy)
+add_executable(benchmark_mixed tests/api/benchmark_mixed.cpp)
+target_link_libraries(benchmark_mixed PRIVATE chronos_core Threads::Threads)
+apply_sanitizers(benchmark_mixed)
