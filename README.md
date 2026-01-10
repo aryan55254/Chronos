@@ -35,27 +35,30 @@ Check detailed validation and performance benchmarks, please refer to [TestResul
 
 Chronos achieves **sub-5µs latency** by utilizing a **Latency-Critical Design**:
 
-* **Busy-Wait Spinning:** Worker threads utilize `_mm_pause()` instructions instead of OS-level sleeping . This eliminates the overhead of context switching and kernel wakeups.
+* **Spin-Wait Spinning:** Worker threads utilize `_mm_pause()` instructions instead of OS-level sleeping . This eliminates the overhead of context switching and kernel wakeups.
 * **Hot-Cache Execution:** By keeping threads active, the instruction cache remains hot, ensuring that new tasks are picked up immediately upon submission.
-* **Trade-off:** This design deliberately targets **Maximum Throughput** and **Minimum Latency** at the cost of higher CPU utilization (100%), making it ideal for real-time systems (HFT, Game Engines) rather than background services.
+* **Trade-off:** This design deliberately targets **Maximum Throughput** and **Minimum Latency** at the cost of higher CPU utilization.
 
 The Scheduling Runtime is fully functional, capable of executing heavy parallel workloads with near-perfect linear scaling and handling adversarial submission patterns via randomized load balancing.
 
-### Implemented Components
-
 #### 1. The Scheduler (Orchestrator)
-* **Algorithm:** **Randomized Work Stealing**.
-    * Replaces deterministic Round-Robin to prevent "convoy effects" during patterned task injection.
-    * Statistically ensures uniform load distribution across workers.
+* **Injection Policy:** **Randomized Distribution**.
+    * Tasks are pushed to a random worker's mailbox.
+    * **Why:** Replaces deterministic Round-Robin to prevent "convoy effects" (overloading a single thread) during patterned task injection sequences.
+* **Submission Backoff:** **Adaptive Backoff**.
+    * If a mailbox is contended or full, the submission utilizes a `Spin -> Yield` strategy to manage overflow without blocking the main thread aggressively.
 * **Topology:** Maps 1 Worker per Thread.
+* **I/O:** Uses std::future/promise based I/O and allows async input of jobs.
 
 #### 2. Lock-Free Work-Stealing Deque (Chase–Lev)
 * **Role:** Stores thread-local sub-tasks (recursion).
+* **Stealing Policy:** **Randomized Victim Selection**.
+    * When a worker is empty, it attempts to steal from a random peer.
 * **Semantics:** LIFO (Last-In-First-Out) for the owner; FIFO (First-In-First-Out) for thieves.
 * **Synchronization:**
   * Owner: **Wait-Free** (atomic loads/stores) for push/pop.
   * Thieves: **Lock-Free** (CAS loop) to steal tasks.
-* **Conflict Resolution:** Handles the "single-item race" using CAS as well.
+* **Conflict Resolution:** Handles the "single-item race" using `compare_exchange_strong`.
 
 #### 3. MPSC Injection Mailbox
 * **Role:** Buffers tasks coming from external sources.
@@ -64,7 +67,6 @@ The Scheduling Runtime is fully functional, capable of executing heavy parallel 
   * **Push (Producers):** Uses a lightweight `atomic_flag` **Spinlock**.
   * **Pop (Worker):** **Wait-Free**.
 * **Safety:** Fully immune to "Phantom Reads" via strict `acquire`/`release` ordering.
-
 ---
 
 ## Build & Development
