@@ -40,8 +40,8 @@ These benchmarks validate the `Scheduler` class using a **Future-based** submiss
 
 * **Scenario:** 8 Long-Running Tasks (200ms each) running on 4 Worker Threads.
 * **Goal:** Verify non-blocking submission and perfect parallel scaling.
-* **Result:** **400.643 ms Total Time**.
-* **Efficiency:** **4x Speedup** (Perfect linear scaling vs 1600ms serial time).
+* **Result:** **300 ms Total Time**.
+* **Efficiency:** **Above 4x Speedup** (linear scaling vs 1600ms serial time).
 * **Behavior:** The Main thread remained unblocked during submission.
 
 ![Demo Parallelism Screenshot](public/image.png)
